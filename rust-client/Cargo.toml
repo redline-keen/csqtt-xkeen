@@ -9,7 +9,7 @@ rust-version = "1.97.1"
 license = "PolyForm-Noncommercial-1.0.0"
 
 [[bin]]
-name = "client"
+name = "csqtt-client"
 path = "main.rs"
 
 [dependencies]

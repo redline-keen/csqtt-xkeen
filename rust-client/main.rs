@@ -99,7 +99,9 @@ struct Arguments {
     #[arg(long, default_value = "")]
     salt: String,
     #[arg(long, default_value = "")]
-    tun_uds: String,
+    tun: String,
+    #[arg(long, default_value_t = 1280)]
+    tun_mtu: u32,
     #[arg(long, default_value_t = false)]
     validate_vk_hashes: bool,
 }
@@ -191,10 +193,11 @@ async fn run() -> Result<()> {
     let control_task = start_control_input(cancel.clone(), paused.clone(), captcha, events.clone());
     let parent_task = start_parent_monitor(cancel.clone());
     let pool = PacketPool::new(packet_pool_size(workers));
-    let tun_uds = (!arguments.tun_uds.is_empty()).then_some(arguments.tun_uds.clone());
+    let tun_name = (!arguments.tun.is_empty()).then_some(arguments.tun.clone());
     let dispatcher_result = Dispatcher::start(
         &arguments.listen,
-        tun_uds,
+        tun_name,
+        arguments.tun_mtu,
         pool.clone(),
         stats.clone(),
         cancel.clone(),
@@ -234,6 +237,7 @@ async fn run() -> Result<()> {
     let stats_task = tokio::spawn(stats.clone().run(events.clone(), cancel.clone()));
     let (config_tx, mut config_rx) = tokio::sync::mpsc::channel::<String>(32);
     let config_events = events.clone();
+    let config_dispatcher = dispatcher.clone();
     let config_task = tokio::spawn(async move {
         let mut last_config = None;
         while let Some(config) = config_rx.recv().await {
@@ -245,6 +249,13 @@ async fn run() -> Result<()> {
                 let ip = fields.next().unwrap_or_default();
                 let dns = fields.next().unwrap_or_default();
                 crate::log_error!("[КЛИЕНТ] Tunnel IP: {ip}/32 | DNS: {dns}");
+                if !ip.is_empty() {
+                    if let Err(error) = config_dispatcher.configure_tun(ip) {
+                        crate::log_error!("[ОШИБКА] Не удалось настроить TUN: {error:#}");
+                    } else {
+                        crate::log_error!("[TUN] Интерфейс настроен: {ip}/32");
+                    }
+                }
             }
             config_events.config(&config);
             last_config = Some(config);
@@ -407,7 +418,8 @@ fn normalize_cli_argument(argument: String) -> String {
         "obfs",
         "gen",
         "salt",
-        "tun-uds",
+        "tun",
+        "tun-mtu",
         "allow-hash-redistribution",
         "validate-vk-hashes",
     ];

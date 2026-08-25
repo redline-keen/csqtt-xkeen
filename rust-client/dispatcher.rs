@@ -221,17 +221,19 @@ pub struct Dispatcher {
     scheduler: StripedScheduler,
     cancel: CancellationToken,
     tasks: tokio::sync::Mutex<Vec<JoinHandle<()>>>,
+    tun_name: Option<Arc<str>>,
 }
 
 impl Dispatcher {
     pub async fn start(
         listen: &str,
-        tun_uds: Option<String>,
+        tun_name: Option<String>,
+        tun_mtu: u32,
         pool: Arc<PacketPool>,
         stats: Arc<Stats>,
         cancel: CancellationToken,
     ) -> Result<(Arc<Self>, String)> {
-        let tun_mode = tun_uds.is_some();
+        let tun_mode = tun_name.is_some();
         let (return_tx, return_rx) = packet_channel(RETURN_CAPACITY, RETURN_MAX_AGE, !tun_mode);
         let dispatcher = Arc::new(Self {
             workers: ArcSwap::from_pointee(Vec::new()),
@@ -239,33 +241,21 @@ impl Dispatcher {
             scheduler: StripedScheduler::new(),
             cancel: cancel.clone(),
             tasks: tokio::sync::Mutex::new(Vec::new()),
+            tun_name: tun_name.as_deref().map(Arc::<str>::from),
         });
-        if let Some(name) = tun_uds {
-            crate::log_error!("[КЛИЕНТ] Запуск UDS-слушателя: {name} для получения TUN FD...");
+        if let Some(name) = tun_name {
+            let file = tun::create(&name, tun_mtu)
+                .map_err(|error| anyhow::anyhow!("не удалось создать TUN {name}: {error:#}"))?;
+            crate::log_error!("[КЛИЕНТ] TUN готов: {name}");
             let io_dispatcher = dispatcher.clone();
             let task_cancel = dispatcher.cancel.clone();
             let io_task = spawn_critical("TUN dispatcher", task_cancel, async move {
                 let mut return_rx = return_rx;
-                loop {
-                    let result = tun::receive_fd(name.clone(), io_dispatcher.cancel.clone()).await;
-                    let file = match result {
-                        Ok(file) => file,
-                        Err(_) if io_dispatcher.cancel.is_cancelled() => return,
-                        Err(error) => {
-                            crate::log_error!(
-                                "[ОШИБКА] Не удалось получить TUN FD из UDS: {error}"
-                            );
-                            tokio::time::sleep(Duration::from_millis(100)).await;
-                            continue;
-                        }
-                    };
-                    crate::log_error!("[КЛИЕНТ] TUN FD успешно получен!");
-                    return_rx.resume();
-                    io_dispatcher
-                        .run_tun(file, &mut return_rx, pool.clone(), stats.clone())
-                        .await;
-                    return_rx.suspend();
-                }
+                return_rx.resume();
+                io_dispatcher
+                    .run_tun(file, &mut return_rx, pool, stats)
+                    .await;
+                return_rx.suspend();
             });
             dispatcher.tasks.lock().await.push(io_task);
             Ok((dispatcher, "0".to_owned()))
@@ -299,6 +289,13 @@ impl Dispatcher {
                 .extend([read_task, write_task]);
             Ok((dispatcher, local_port))
         }
+    }
+
+    pub fn configure_tun(&self, ip: &str) -> Result<()> {
+        let Some(name) = self.tun_name.as_deref() else {
+            return Ok(());
+        };
+        tun::configure(name, ip)
     }
 
     pub fn register(&self, channels: WorkerChannels) {
@@ -759,6 +756,7 @@ mod tests {
                 scheduler: StripedScheduler::new(),
                 cancel: CancellationToken::new(),
                 tasks: tokio::sync::Mutex::new(Vec::new()),
+                tun_name: None,
             }),
             return_rx,
         )
@@ -1325,6 +1323,7 @@ mod tests {
         let (dispatcher, _) = Dispatcher::start(
             "127.0.0.1:0",
             None,
+            1280,
             pool.clone(),
             Arc::new(Stats::default()),
             cancel,
