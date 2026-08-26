@@ -20,6 +20,14 @@ if [ ! -d "/opt" ]; then
     exit 1
 fi
 
+# Убеждаемся в наличии утилит для работы с HTTPS
+if ! command -v curl >/dev/null 2>&1 && ! opkg list-installed 2>/dev/null | grep -q "^wget-ssl "; then
+    echo "Установка необходимых сетевых пакетов (curl, wget-ssl, ca-bundle)..."
+    opkg update >/dev/null 2>&1 || true
+    opkg install curl wget-ssl ca-bundle >/dev/null 2>&1 || true
+    opkg remove wget-nossl 2>/dev/null || true
+fi
+
 # 0. Определение архитектуры процессора
 ARCH_RAW=$(uname -m)
 case "$ARCH_RAW" in
@@ -53,7 +61,7 @@ echo "URL загрузки: ${BIN_URL}"
 
 URI="$1"
 
-# 1. Цикл валидации ссылки с поддержкой TTY
+# 1. Цикл валидации и парсинга ссылки (с поддержкой URL-encoded join-ссылок)
 while true; do
     if [ -z "$URI" ]; then
         if [ -t 0 ]; then
@@ -71,15 +79,22 @@ while true; do
     HASHES_RAW=$(echo "$URI" | sed -n 's/.*[?&]hashes=\([^&]*\).*/\1/p')
 
     if [ -n "$HOST" ] && [ -n "$PORT" ] && [ -n "$PASSWORD" ] && [ -n "$HASHES_RAW" ]; then
-        echo " Ссылка принята."
-        break
-    else
-        echo " Некорректная ссылка! Отсутствуют обязательные параметры."
-        URI=""
+        # Декодирование URL (%3A -> :, %2F -> /)
+        DECODED_HASHES=$(echo "$HASHES_RAW" | sed -e 's/%3A/:/g' -e 's/%2F/\//g' -e 's/%3a/:/g' -e 's/%2f/\//g')
+        
+        # Извлекаем хеши и объединяем через запятую с помощью awk (без paste)
+        VK=$(echo "$DECODED_HASHES" | tr '+' '\n' | sed -n 's/.*\/join\///p; t; p' | awk 'NF {if (NR!=1) {printf ","}; printf "%s", $0} END {print ""}')
+
+        if [ -n "$VK" ]; then
+            echo " Ссылка принята. Извлечено хешей: $(echo "$VK" | tr ',' '\n' | wc -l | tr -d ' ')"
+            break
+        fi
     fi
+
+    echo " Некорректная ссылка! Отсутствуют обязательные параметры."
+    URI=""
 done
 
-VK=$(echo "$HASHES_RAW" | tr '+' ',')
 PEER="${HOST}:${PORT}"
 TUN="csqtt0"
 
@@ -126,8 +141,10 @@ chmod 600 "${CONF_FILE}"
 # 4. Загрузка бинарника
 echo "[2/6] Загрузка бинарного файла (${ARCH})..."
 if command -v curl >/dev/null 2>&1; then
-    curl -fL -o "${TARGET_PATH}" "${BIN_URL}"
-elif command -v wget >/dev/null 2>&1; then
+    curl -kfsSL -o "${TARGET_PATH}" "${BIN_URL}"
+elif [ -x /opt/bin/wget ]; then
+    /opt/bin/wget --no-check-certificate -O "${TARGET_PATH}" "${BIN_URL}"
+else
     wget --no-check-certificate -O "${TARGET_PATH}" "${BIN_URL}"
 fi
 chmod +x "${TARGET_PATH}"
@@ -253,7 +270,7 @@ EOF
 
 chmod +x "${INIT_SCRIPT}"
 
-# 6. Создание Watchdog и регистрация в Cron с перезапуском демона
+# 6. Создание Watchdog и регистрация в Cron
 echo "[4/6] Создание скрипта watchdog и настройка Cron..."
 
 cat > "${WATCHDOG_SCRIPT}" << 'EOF'
@@ -314,12 +331,10 @@ touch /opt/var/spool/cron/crontabs/root
 
 CRON_JOB="*/2 * * * * /opt/etc/csqtt/watchdog.sh >/dev/null 2>&1"
 if ! grep -Fq "/opt/etc/csqtt/watchdog.sh" /opt/var/spool/cron/crontabs/root 2>/dev/null; then
-    # Очищаем возможные битые пустые строки и дописываем задачу
     sed -i '/^[[:space:]]*$/d' /opt/var/spool/cron/crontabs/root 2>/dev/null || true
     echo "$CRON_JOB" >> /opt/var/spool/cron/crontabs/root
 fi
 
-# Перезапуск cron для обязательного перечитывания спойла
 if [ -x "/opt/etc/init.d/S10cron" ]; then
     /opt/etc/init.d/S10cron restart >/dev/null 2>&1 || true
 fi
@@ -333,7 +348,6 @@ cat > "${INSTALL_DIR}/uninstall.sh" << 'EOF'
 
 echo "=== Удаление csqtt-client и всех его компонентов ==="
 
-# Удаление из crontab и перезапуск cron
 if [ -f "/opt/var/spool/cron/crontabs/root" ]; then
     sed -i '/\/opt\/etc\/csqtt\/watchdog\.sh/d' /opt/var/spool/cron/crontabs/root 2>/dev/null || true
     if [ -x "/opt/etc/init.d/S10cron" ]; then
@@ -341,7 +355,6 @@ if [ -f "/opt/var/spool/cron/crontabs/root" ]; then
     fi
 fi
 
-# Остановка службы
 if [ -x "/opt/etc/init.d/S99csqtt" ]; then
     echo "Остановка службы..."
     /opt/etc/init.d/S99csqtt stop 2>/dev/null || true
