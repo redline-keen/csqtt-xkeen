@@ -20,14 +20,6 @@ if [ ! -d "/opt" ]; then
     exit 1
 fi
 
-# Убеждаемся в наличии утилит для работы с HTTPS
-if ! command -v curl >/dev/null 2>&1 && ! opkg list-installed 2>/dev/null | grep -q "^wget-ssl "; then
-    echo "Установка необходимых сетевых пакетов (curl, wget-ssl, ca-bundle)..."
-    opkg update >/dev/null 2>&1 || true
-    opkg install curl wget-ssl ca-bundle >/dev/null 2>&1 || true
-    opkg remove wget-nossl 2>/dev/null || true
-fi
-
 # 0. Определение архитектуры процессора
 ARCH_RAW=$(uname -m)
 case "$ARCH_RAW" in
@@ -61,7 +53,7 @@ echo "URL загрузки: ${BIN_URL}"
 
 URI="$1"
 
-# 1. Цикл валидации и парсинга ссылки (с поддержкой URL-encoded join-ссылок)
+# 1. Цикл валидации ссылки с поддержкой TTY
 while true; do
     if [ -z "$URI" ]; then
         if [ -t 0 ]; then
@@ -79,22 +71,15 @@ while true; do
     HASHES_RAW=$(echo "$URI" | sed -n 's/.*[?&]hashes=\([^&]*\).*/\1/p')
 
     if [ -n "$HOST" ] && [ -n "$PORT" ] && [ -n "$PASSWORD" ] && [ -n "$HASHES_RAW" ]; then
-        # Декодирование URL (%3A -> :, %2F -> /)
-        DECODED_HASHES=$(echo "$HASHES_RAW" | sed -e 's/%3A/:/g' -e 's/%2F/\//g' -e 's/%3a/:/g' -e 's/%2f/\//g')
-        
-        # Извлекаем хеши и объединяем через запятую с помощью awk (без paste)
-        VK=$(echo "$DECODED_HASHES" | tr '+' '\n' | sed -n 's/.*\/join\///p; t; p' | awk 'NF {if (NR!=1) {printf ","}; printf "%s", $0} END {print ""}')
-
-        if [ -n "$VK" ]; then
-            echo " Ссылка принята. Извлечено хешей: $(echo "$VK" | tr ',' '\n' | wc -l | tr -d ' ')"
-            break
-        fi
+        echo " Ссылка принята."
+        break
+    else
+        echo " Некорректная ссылка! Отсутствуют обязательные параметры."
+        URI=""
     fi
-
-    echo " Некорректная ссылка! Отсутствуют обязательные параметры."
-    URI=""
 done
 
+VK=$(echo "$HASHES_RAW" | tr '+' ',')
 PEER="${HOST}:${PORT}"
 TUN="csqtt0"
 
@@ -141,10 +126,8 @@ chmod 600 "${CONF_FILE}"
 # 4. Загрузка бинарника
 echo "[2/6] Загрузка бинарного файла (${ARCH})..."
 if command -v curl >/dev/null 2>&1; then
-    curl -kfsSL -o "${TARGET_PATH}" "${BIN_URL}"
-elif [ -x /opt/bin/wget ]; then
-    /opt/bin/wget --no-check-certificate -O "${TARGET_PATH}" "${BIN_URL}"
-else
+    curl -fL -o "${TARGET_PATH}" "${BIN_URL}"
+elif command -v wget >/dev/null 2>&1; then
     wget --no-check-certificate -O "${TARGET_PATH}" "${BIN_URL}"
 fi
 chmod +x "${TARGET_PATH}"
@@ -400,11 +383,10 @@ echo ""
 
 if [ $READY -eq 1 ]; then
     TUN_IP=$(ip addr show "$TUN" | sed -n 's/.*inet \([0-9.]*\).*/\1/p')
-    echo "=== Успех: служба запущена в фоне, интерфейс ${TUN} готов (IP: ${TUN_IP}) ==="
-    echo "=== Удаление клиента: csqtt-uninstall ==="
-    sleep 5
-    echo "--- Последние 300 строк лога ---"
-    tail -n 300 "${LOG_FILE}"
+    echo "=== УСПЕХ: Служба запущена в фоне, интерфейс ${TUN} готов (IP: ${TUN_IP}) ==="
+    echo "--- Последние строки лога ---"
+    sleep 3
+    tail -n 30 "${LOG_FILE}"
     echo "----------------------------"
 else
     echo "=== ОШИБКА: Интерфейс ${TUN} не поднялся! ===" >&2
