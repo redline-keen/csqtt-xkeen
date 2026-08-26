@@ -401,9 +401,10 @@ echo ""
 if [ $READY -eq 1 ]; then
     TUN_IP=$(ip addr show "$TUN" | sed -n 's/.*inet \([0-9.]*\).*/\1/p')
     echo "=== УСПЕХ: Служба запущена в фоне, интерфейс ${TUN} готов (IP: ${TUN_IP}) ==="
-    echo "--- Последние строки лога ---"
-    sleep 3
-    tail -n 30 "${LOG_FILE}"
+    echo "=== Удаление клиента: csqtt-uninstall ==="
+    sleep 5
+    echo "--- Последние 200 строк лога ---"
+    tail -n 200 "${LOG_FILE}"
     echo "----------------------------"
 else
     echo "=== ОШИБКА: Интерфейс ${TUN} не поднялся! ===" >&2
