@@ -73,6 +73,16 @@ proxy-groups:
     interval: 120
     tolerance: 50
 
+  - name: Github
+    type: fallback
+    proxies:
+      - 🔓 Без VPN
+      - VPN
+    hidden: true
+    url: https://raw.githubusercontent.com/
+    interval: 60
+    lazy: true
+
   - name: AI
     icon: https://cdn.jsdelivr.net/gh/Koolson/Qure@master/IconSet/Color/OneDrive.png
     type: select
@@ -323,6 +333,8 @@ rule-providers:
 # --- Секция 4: ПРАВИЛА ---
 # --------------------------------------------------------------------
 rules:
+  - DOMAIN-SUFFIX,vk.ru,DIRECT
+  - DOMAIN-KEYWORD,vk,DIRECT
   - RULE-SET,private-ips,DIRECT
   - RULE-SET,private-domains,DIRECT
   - RULE-SET,category-ads,REJECT
@@ -337,7 +349,7 @@ rules:
   - RULE-SET,youtube,📺 Youtube
   - RULE-SET,telegram-domains,VPN
   - RULE-SET,telegram-ips,VPN
-  - RULE-SET,github,VPN
+  - RULE-SET,github,Github
   - RULE-SET,epicgames,🎮 Игры
   - RULE-SET,origin,🎮 Игры
   - RULE-SET,riot,🎮 Игры
