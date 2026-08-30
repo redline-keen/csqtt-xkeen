@@ -1,5 +1,5 @@
 #!/bin/sh
-# install-raw-with-xkeen.sh — Единый скрипт установки csqtt + nfqws2 + XKeen + Mihomo
+# csqtt-hyper-install.sh — Единый скрипт установки csqtt + nfqws2 + XKeen + Mihomo
 set -e
 
 REPO_URL="https://raw.githubusercontent.com/redline-keen/csqtt-xkeen/main"
