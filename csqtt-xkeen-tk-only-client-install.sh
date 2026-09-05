@@ -4,7 +4,7 @@ set -e
 
 INSTALL_DIR="/opt/etc/csqtt"
 BIN_NAME="csqtt-client"
-REPO_RELEASE_URL="https://github.com/redline-keen/csqtt-xkeen/releases/download/1.0"
+REPO_RELEASE_URL="https://github.com/redline-keen/csqtt-xkeen/releases/download/1.1"
 TARGET_PATH="${INSTALL_DIR}/${BIN_NAME}"
 CONF_FILE="${INSTALL_DIR}/csqtt.conf"
 LOG_FILE="${INSTALL_DIR}/csqtt-client.log"
