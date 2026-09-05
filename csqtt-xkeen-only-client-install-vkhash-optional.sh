@@ -85,7 +85,7 @@ while true; do
         # Декодирование URL (%3A -> :, %2F -> /)
         DECODED_HASHES=$(echo "$HASHES_RAW" | sed -e 's/%3A/:/g' -e 's/%2F/\//g' -e 's/%3a/:/g' -e 's/%2f/\//g')
         
-        # Извлекаем хеши и объединяем через запятую с помощью awk (без paste)
+        # Извлекаем хеши и объединяем через запятую с помощью awk
         VK=$(echo "$DECODED_HASHES" | tr '+' '\n' | sed -n 's/.*\/join\///p; t; p' | awk 'NF {if (NR!=1) {printf ","}; printf "%s", $0} END {print ""}')
 
         if [ -n "$VK" ]; then
@@ -133,6 +133,9 @@ done
 
 echo "Количество потоков установлено: $N"
 
+# Гарантируем наличие целевой директории перед работой с файлами
+mkdir -p "${INSTALL_DIR}"
+
 # 3. Необязательный VK Access Token для автоматического обновления хешей
 echo ""
 echo "VK Access Token (необязательно)."
@@ -166,13 +169,12 @@ unset VK_ACCESS_TOKEN
 
 # 4. Сохранение конфигурации
 echo "[1/6] Сохранение конфигурации в ${CONF_FILE}..."
-mkdir -p "${INSTALL_DIR}"
 
 printf "PEER='%s'\nPASSWORD='%s'\nVK='%s'\nTUN='%s'\nN='%s'\n" \
     "$PEER" "$PASSWORD" "$VK" "$TUN" "$N" > "${CONF_FILE}"
 chmod 600 "${CONF_FILE}"
 
-# 4. Загрузка бинарника
+# 5. Загрузка бинарника
 echo "[2/6] Загрузка бинарного файла (${ARCH})..."
 if command -v curl >/dev/null 2>&1; then
     curl -kfsSL -o "${TARGET_PATH}" "${BIN_URL}"
@@ -185,7 +187,7 @@ chmod +x "${TARGET_PATH}"
 
 # 6. Создание скрипта ежедневного обновления VK-хеша (только если указан VK Token)
 if [ "$VK_HASH_UPDATE_ENABLED" = "1" ]; then
-echo "[4/8] Создание скрипта ${HASH_UPDATE_SCRIPT}..."
+echo "[3/6] Создание скрипта ${HASH_UPDATE_SCRIPT}..."
 
 cat > "${HASH_UPDATE_SCRIPT}" << 'EOF'
 #!/bin/sh
@@ -251,7 +253,6 @@ VK_LINE=$(grep '^VK=' "$CONF_FILE" 2>/dev/null | head -n 1)
 OLD_VK=$(echo "$VK_LINE" | sed -n "s/^VK=['\"]\(.*\)['\"]$/\1/p")
 [ -n "$OLD_VK" ] || { log "ОШИБКА: не удалось разобрать VK."; exit 1; }
 
-# Преобразуем VK из CSV в позиционный список.
 OLD_IFS="$IFS"
 IFS=','
 set -- $OLD_VK
@@ -260,7 +261,6 @@ IFS="$OLD_IFS"
 HASH_COUNT=$#
 [ "$HASH_COUNT" -ge 1 ] || { log "ОШИБКА: VK содержит 0 хешей."; exit 1; }
 
-# Случайная позиция 1..N.
 if [ -r /dev/urandom ]; then
     RAND_BYTE=$(od -An -N1 -tu1 /dev/urandom 2>/dev/null | tr -d ' ')
 else
@@ -293,7 +293,6 @@ for HASH in "$@"; do
     INDEX=$((INDEX + 1))
 done
 
-# Меняем только строку VK=.
 sed "s#^VK=.*#VK='${NEW_VK}'#" "$CONF_FILE" > "$TMP_FILE" || {
     log "ОШИБКА: не удалось создать временный конфиг."
     exit 1
@@ -305,7 +304,6 @@ NEW_COUNT=$(grep '^VK=' "$TMP_FILE" | sed "s/^VK=['\"]//;s/['\"]$//" | tr ',' '\
     exit 1
 }
 
-# Атомарная замена. csqtt-client НЕ перезапускается и сигналов ему не посылается.
 mv "$TMP_FILE" "$CONF_FILE" || {
     log "ОШИБКА: не удалось заменить конфиг."
     exit 1
@@ -319,16 +317,15 @@ EOF
 chmod +x "${HASH_UPDATE_SCRIPT}"
 chmod 700 "${HASH_UPDATE_SCRIPT}"
 
-# Первый запуск: до старта клиента получаем свежий hash.
 "${HASH_UPDATE_SCRIPT}" || echo "Предупреждение: первый VK-хеш не обновлён. Ежедневный cron останется активен."
 else
     rm -f "${HASH_UPDATE_SCRIPT}"
     rm -f "${HASH_UPDATE_LOG}"
-    echo "[4/8] VK hash updater отключён — используются родные хеши csqtt."
+    echo "[3/6] VK hash updater отключён — используются родные хеши csqtt."
 fi
 
 # 7. Создание init-скрипта
-echo "[3/6] Создание init-скрипта ${INIT_SCRIPT}..."
+echo "[4/6] Создание init-скрипта ${INIT_SCRIPT}..."
 mkdir -p /opt/etc/init.d
 
 cat > "${INIT_SCRIPT}" << 'EOF'
@@ -365,7 +362,6 @@ start() {
     mkdir -p /opt/var/run "$DIR"
     > "$LOGFILE"
 
-    # Ожидание готовности WAN, DNS и NTP
     WAIT_COUNT=30
     while [ $WAIT_COUNT -gt 0 ]; do
         if nslookup api.vk.me >/dev/null 2>&1 && [ "$(date +%Y)" -ge 2024 ]; then
@@ -448,8 +444,8 @@ EOF
 
 chmod +x "${INIT_SCRIPT}"
 
-# 6. Создание Watchdog и регистрация в Cron
-echo "[4/6] Создание скрипта watchdog и настройка Cron..."
+# 8. Создание Watchdog и регистрация в Cron
+echo "[5/6] Создание скрипта watchdog и настройка Cron..."
 
 cat > "${WATCHDOG_SCRIPT}" << 'EOF'
 #!/bin/sh
@@ -526,8 +522,8 @@ if [ -x "/opt/etc/init.d/S10cron" ]; then
     /opt/etc/init.d/S10cron restart >/dev/null 2>&1 || true
 fi
 
-# 7. Создание скрипта удаления csqtt-uninstall
-echo "[5/6] Создание скрипта удаления ${UNINSTALL_BIN}..."
+# 9. Создание скрипта удаления csqtt-uninstall
+echo "[6/6] Создание скрипта удаления ${UNINSTALL_BIN}..."
 mkdir -p /opt/bin
 
 cat > "${INSTALL_DIR}/uninstall.sh" << 'EOF'
@@ -569,8 +565,8 @@ EOF
 
 chmod +x "${UNINSTALL_BIN}"
 
-# 8. Запуск службы и ожидание
-echo "[6/6] Запуск службы и ожидание инициализации воркеров..."
+# 10. Запуск службы и ожидание
+echo "Запуск службы и ожидание инициализации воркеров..."
 "${INIT_SCRIPT}" restart
 
 COUNT=0
