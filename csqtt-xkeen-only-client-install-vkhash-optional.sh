@@ -23,6 +23,8 @@ if [ ! -d "/opt" ]; then
     exit 1
 fi
 
+mkdir -p "${INSTALL_DIR}"
+
 # Убеждаемся в наличии утилит для работы с HTTPS
 if ! command -v curl >/dev/null 2>&1 && ! opkg list-installed 2>/dev/null | grep -q "^wget-ssl "; then
     echo "Установка необходимых сетевых пакетов (curl, wget-ssl, ca-bundle)..."
