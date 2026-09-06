@@ -52,17 +52,11 @@ sniffer:
     - fe80::/10
     - ::/127
 
-# --------------------------------------------------------------------
-# --- Секция 1: ПРОВАЙДЕРЫ ПРОКСИ ---
-# --------------------------------------------------------------------
 proxies:
   - name: CSQTT
     type: direct
     interface-name: csqtt0
 
-# --------------------------------------------------------------------
-# --- Секция 2: ГРУППЫ ПРОКСИ ---
-# --------------------------------------------------------------------
 proxy-groups:
   - name: VPN
     type: select
@@ -72,16 +66,18 @@ proxy-groups:
     url: http://www.gstatic.com/generate_204
     interval: 120
     tolerance: 50
-
-  - name: Github
+    
+  - name: RU
+    icon: https://cdn.jsdelivr.net/gh/Koolson/Qure@master/IconSet/Color/YouTube.png
     type: fallback
     proxies:
       - 🔓 Без VPN
       - VPN
-    hidden: true
-    url: https://raw.githubusercontent.com/
+    url: https://overclockers.ru
     interval: 60
     lazy: true
+    hidden: true
+    
 
   - name: AI
     icon: https://cdn.jsdelivr.net/gh/Koolson/Qure@master/IconSet/Color/OneDrive.png
@@ -96,7 +92,18 @@ proxy-groups:
     proxies:
       - 🔓 Без VPN
       - VPN
-
+      
+  - name: Github
+    icon: https://cdn.jsdelivr.net/gh/Koolson/Qure@master/IconSet/Color/YouTube.png
+    type: fallback
+    proxies:
+      - 🔓 Без VPN
+      - VPN
+    url: https://github.com
+    interval: 60
+    lazy: true
+    hidden: true
+    
   - name: 💬 Discord
     icon: https://cdn.jsdelivr.net/gh/Koolson/Qure@master/IconSet/Color/Discord.png
     type: select
@@ -124,9 +131,6 @@ proxy-groups:
     proxies:
       - REJECT
 
-# --------------------------------------------------------------------
-# --- Секция 3: ПРОВАЙДЕРЫ ПРАВИЛ ---
-# --------------------------------------------------------------------
 rule-providers:
   private-domains:
     type: http
@@ -329,38 +333,35 @@ rule-providers:
     proxy: VPN
     interval: 86400
 
-# --------------------------------------------------------------------
-# --- Секция 4: ПРАВИЛА ---
-# --------------------------------------------------------------------
 rules:
-  - DOMAIN-SUFFIX,vk.ru,DIRECT
-  - DOMAIN-KEYWORD,vk,DIRECT
   - RULE-SET,private-ips,DIRECT
   - RULE-SET,private-domains,DIRECT
-  - RULE-SET,category-ads,REJECT
-  - RULE-SET,win-spy,REJECT
-  - RULE-SET,torrent-domains,DIRECT
+  - DOMAIN-SUFFIX,vk.ru,DIRECT
+  - DOMAIN-KEYWORD,vk,DIRECT
   - DOMAIN-SUFFIX,yandex.ru,DIRECT
   - DOMAIN-SUFFIX,ya.ru,DIRECT
   - DOMAIN-KEYWORD,yandex,DIRECT
-  - RULE-SET,ai,AI
-  - RULE-SET,google-play,VPN
-  - RULE-SET,twitch-ads,VPN
-  - RULE-SET,youtube,📺 Youtube
-  - RULE-SET,telegram-domains,VPN
-  - RULE-SET,telegram-ips,VPN
-  - RULE-SET,github,Github
+  - RULE-SET,whitelist,DIRECT
+  - RULE-SET,category-ads,REJECT
+  - RULE-SET,win-spy,REJECT
+  - RULE-SET,torrent-domains,DIRECT
   - RULE-SET,epicgames,🎮 Игры
   - RULE-SET,origin,🎮 Игры
   - RULE-SET,riot,🎮 Игры
   - RULE-SET,escapefromtarkov,🎮 Игры
   - RULE-SET,steam,🎮 Игры
   - RULE-SET,faceit,🎮 Игры
+  - RULE-SET,ai,AI
+  - RULE-SET,youtube,📺 Youtube
+  - RULE-SET,github,Github
+  - RULE-SET,telegram-domains,VPN
+  - RULE-SET,telegram-ips,VPN
+  - RULE-SET,twitch-ads,VPN
   - RULE-SET,twitch,VPN
+  - RULE-SET,google-play,VPN
   - RULE-SET,microsoft,VPN
-  - RULE-SET,apple,DIRECT
-  - RULE-SET,pinterest,DIRECT
-  - RULE-SET,category-ru,DIRECT
-  - RULE-SET,whitelist,DIRECT
-  - RULE-SET,direct-ips,DIRECT
+  - RULE-SET,apple,RU
+  - RULE-SET,pinterest,RU
+  - RULE-SET,category-ru,RU
+  - RULE-SET,direct-ips,RU
   - MATCH,VPN
