@@ -68,7 +68,7 @@ proxy-groups:
     tolerance: 50
     
   - name: RU
-    icon: https://cdn.jsdelivr.net/gh/Koolson/Qure@master/IconSet/Color/YouTube.png
+    icon: https://cdn.jsdelivr.net/gh/Koolson/Qure@master/IconSet/Color/Russia.png
     type: fallback
     proxies:
       - 🔓 Без VPN
