@@ -80,7 +80,7 @@ proxy-groups:
     
 
   - name: AI
-    icon: https://cdn.jsdelivr.net/gh/Koolson/Qure@master/IconSet/Color/OneDrive.png
+    icon: https://cdn.jsdelivr.net/gh/Koolson/Qure@master/IconSet/Color/ChatGPT.png
     type: select
     hidden: true
     proxies:
@@ -94,7 +94,7 @@ proxy-groups:
       - VPN
       
   - name: Github
-    icon: https://cdn.jsdelivr.net/gh/Koolson/Qure@master/IconSet/Color/YouTube.png
+    icon: icon: https://cdn.jsdelivr.net/gh/Koolson/Qure@master/IconSet/Color/GitHub.png
     type: fallback
     proxies:
       - 🔓 Без VPN
