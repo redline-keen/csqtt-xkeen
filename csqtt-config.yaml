@@ -1,4 +1,5 @@
 # --- ОСНОВНЫЕ НАСТРОЙКИ ---
+mixed-port: 7890
 redir-port: 7892
 tproxy-port: 7893
 allow-lan: true
@@ -11,11 +12,8 @@ tcp-concurrent: true
 # --- НАСТРОЙКИ UI/ПРОФИЛЯ ---
 external-controller: '0.0.0.0:9090'
 secret: 'admin'
-external-ui: ui
-external-ui-url: "https://github.com/Zephyruso/zashboard/releases/latest/download/dist.zip"
 profile:
   store-selected: true
-  store-fake-ip: true
 
 # --- SNIFFER ---
 sniffer:
