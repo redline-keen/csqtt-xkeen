@@ -92,7 +92,7 @@ proxy-groups:
       - VPN
       
   - name: Github
-    icon: icon: https://cdn.jsdelivr.net/gh/Koolson/Qure@master/IconSet/Color/GitHub.png
+    icon: https://cdn.jsdelivr.net/gh/Koolson/Qure@master/IconSet/Color/GitHub.png
     type: fallback
     proxies:
       - 🔓 Без VPN
