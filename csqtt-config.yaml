@@ -343,7 +343,8 @@ rules:
   - RULE-SET,category-ads,REJECT
   - RULE-SET,win-spy,REJECT
   # порт для торрент-клиента настроить обязательно!
-  - DST-PORT,51413,DIRECT 
+  - DST-PORT,51413,DIRECT
+  - SRC-PORT,51413,DIRECT
   - RULE-SET,torrent-domains,DIRECT
   - RULE-SET,epicgames,🎮 Игры
   - RULE-SET,origin,🎮 Игры
