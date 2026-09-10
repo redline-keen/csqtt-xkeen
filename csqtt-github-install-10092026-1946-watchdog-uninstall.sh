@@ -332,8 +332,8 @@ cat > "$CSQTT_DIR/csqtt.conf" <<EOF
 # CSQTT client config — правьте и перезапускайте: $INIT_SCRIPT_NAME start
 PEER="$PEER"
 PASSWORD="$PASSWORD"
-vk="$CSQTT_HASHES"
-n="$CSQTT_WORKERS"
+HASHES="$CSQTT_HASHES"
+WORKERS="$CSQTT_WORKERS"
 VK_MODE="auto_js"
 DEVICE_ID="$DEVICE_ID"
 LISTEN="127.0.0.1:9000"
