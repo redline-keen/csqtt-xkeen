@@ -28,7 +28,7 @@ CSQTT_TAG="2.0"
 CSQTT_LOCAL_BIN=""
 CSQTT_VK_TOKEN=""
 CSQTT_MODE="auto_js"
-CSQTT_WORKERS=""
+CSQTT_WORKERS="54"
 CSQTT_START=1
 CSQTT_LINK=""
 
@@ -56,7 +56,7 @@ die()  { printf '\033[1;31m[CSQTT ОШИБКА]\033[0m %s\n' "$*"; exit 1; }
 if [ -d /opt/entware ] || [ -d /opt/etc/init.d ]; then
     CSQTT_DIR="/opt/etc/csqtt"
     INIT_DIR="/opt/etc/init.d"
-    LOG_DIR="/opt/var/log"
+    LOG_DIR="/opt/etc/csqtt"
     INIT_STYLE="entware"
 else
     CSQTT_DIR="/etc/csqtt"
