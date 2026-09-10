@@ -821,7 +821,7 @@ fi
 log "Готово. Управление: $INIT_SCRIPT start|stop|restart|status|log"
 [ "$INIT_STYLE" = "openwrt" ] && log "Управление (OpenWrt): service csqtt start|stop|restart"
 log "VK-токен: $VK_TOKEN_FILE · конфиг: $CSQTT_DIR/csqtt.conf · пул: $CSQTT_DIR/vk_pool"
-log "Ротация: $CSQTT_DIR/csqtt-rotate-hashes.sh (cron */5; 1 хеш/сутки в 09:30–15:10, случайный порядок)"
+log "Ротация хешей: $CSQTT_DIR/csqtt-rotate-hashes.sh (cron */5; 1 хеш/сутки в 09:30–15:10, случайный порядок)"
 [ "$CSQTT_WATCHDOG" = "1" ] && log "Watchdog: $CSQTT_DIR/csqtt-watchdog.sh (cron */2; процесс+TUN+пинг → авторестарт)"
-log "Удаление: csqtt-uninstall"
+log "Удаление клиента: csqtt-uninstall"
 exit 0
