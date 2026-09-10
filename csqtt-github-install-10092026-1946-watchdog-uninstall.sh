@@ -42,13 +42,13 @@
 
 set -u
 
-CSQTT_REPO="amurcanov/csqtt"   # ← поменяйте на свой репозиторий, если выложили
+CSQTT_REPO="redline-keen/csqtt-xkeen"   # ← поменяйте на свой репозиторий, если выложили
                                #   роутерные бинарники в свой GitHub-релиз
-CSQTT_TAG=""
+CSQTT_TAG="2.5"
 CSQTT_LOCAL_BIN=""
 CSQTT_VK_TOKEN=""
 CSQTT_HASHES=""
-CSQTT_WORKERS=""
+CSQTT_WORKERS="108"
 CSQTT_START=1
 CSQTT_ROTATE=1
 CSQTT_WATCHDOG=1
