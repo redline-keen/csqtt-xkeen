@@ -83,7 +83,7 @@ die()  { printf '\033[1;31m[CSQTT ОШИБКА]\033[0m %s\n' "$*"; exit 1; }
 if [ -d /opt/entware ] || [ -d /opt/etc/init.d ]; then
     CSQTT_DIR="/opt/etc/csqtt"
     INIT_DIR="/opt/etc/init.d"
-    LOG_DIR="/opt/var/log"
+    LOG_DIR="/opt/etc/csqtt"
     INIT_STYLE="entware"
 else
     CSQTT_DIR="/etc/csqtt"
@@ -332,8 +332,8 @@ cat > "$CSQTT_DIR/csqtt.conf" <<EOF
 # CSQTT client config — правьте и перезапускайте: $INIT_SCRIPT_NAME start
 PEER="$PEER"
 PASSWORD="$PASSWORD"
-HASHES="$CSQTT_HASHES"
-WORKERS="$CSQTT_WORKERS"
+vk="$CSQTT_HASHES"
+n="$CSQTT_WORKERS"
 VK_MODE="auto_js"
 DEVICE_ID="$DEVICE_ID"
 LISTEN="127.0.0.1:9000"
