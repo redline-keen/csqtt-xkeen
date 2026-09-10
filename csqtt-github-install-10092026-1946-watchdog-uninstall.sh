@@ -44,7 +44,7 @@ set -u
 
 CSQTT_REPO="redline-keen/csqtt-xkeen"   # ← поменяйте на свой репозиторий, если выложили
                                #   роутерные бинарники в свой GitHub-релиз
-CSQTT_TAG="2.5"
+CSQTT_TAG="2.0"
 CSQTT_LOCAL_BIN=""
 CSQTT_VK_TOKEN=""
 CSQTT_HASHES=""
