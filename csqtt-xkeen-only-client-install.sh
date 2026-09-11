@@ -1,25 +1,4 @@
 #!/bin/sh
-# -*- coding: utf-8 -*-
-# CSQTT — установка клиентского бинарника с GitHub на роутер
-# (Keenetic/Entware, OpenWrt) с Авторежимом ВК (auto_js), пулом хешей
-# и суточной ротацией (один хеш в сутки, окно 09:30–15:10, случайный порядок).
-#
-# Использование:
-#   ./csqtt-github-install.sh 'csqtt://connect?...' [опции]
-#   sh csqtt-github-install.sh --repo ВАШ_ЛОГИН/ВАШ_РЕПО ...
-#
-# Опции:
-#   --repo OWNER/REPO            GitHub-репозиторий с бинарниками (по умолч. redline-keen/csqtt-xkeen)
-#   --tag TAG                    тег релиза (по умолч. последний)
-#   --local-bin ПУТЬ             не скачивать, использовать локальный файл
-#   --vk-token ТОКЕН             VK access token (иначе скрипт спросит интерактивно)
-#   --hashes N                   число хешей в пуле 1..6 (по умолч. спрашивает, стандарт 4)
-#   --workers N                  воркеры 9..162 (по умолч. спрашивает; автоматически
-#                                урезается до хеши×27 и выравнивается кратно 9)
-#   --download-config            автоматически скачивать config.yaml для Mihomo без запроса
-#   --no-start                   установить, но не запускать
-#   --no-rotate                  не ставить cron-ротацию хешей
-#   --no-watchdog                не ставить cron-watchdog (автоперезапуск при сбое)
 
 set -u
 
@@ -28,12 +7,25 @@ CSQTT_TAG="2.0"
 CSQTT_LOCAL_BIN=""
 CSQTT_VK_TOKEN=""
 CSQTT_HASHES=""
-CSQTT_WORKERS="108"
+CSQTT_WORKERS="54"
 CSQTT_START=1
 CSQTT_ROTATE=1
 CSQTT_WATCHDOG=1
 CSQTT_LINK=""
 DOWNLOAD_CONFIG_AUTO=0
+
+# Расширенные параметры csqtt-client по умолчанию
+CSQTT_VK_MODE="auto_js"
+CSQTT_LISTEN="127.0.0.1:9000"
+CSQTT_FINGERPRINT="firefox"
+CSQTT_CLIENT_IDS="8202606,6287487"
+CSQTT_OBFS="video"
+CSQTT_TURN_TRANSPORT="udp"
+CSQTT_CAPTCHA_MODE="auto"
+CSQTT_VK_HASH_MODE="auto_js"
+CSQTT_VK_AUTH_MODE="auto_js"
+CSQTT_TUN_IFACE="csqtt0"
+CSQTT_TUN_MTU="1300"
 
 WORKERS_PER_HASH=27
 WORKERS_STEP=9
@@ -52,6 +44,17 @@ while [ $# -gt 0 ]; do
         --vk-token)        CSQTT_VK_TOKEN="$2"; shift 2 ;;
         --hashes)          CSQTT_HASHES="$2"; shift 2 ;;
         --workers)         CSQTT_WORKERS="$2"; shift 2 ;;
+        --vk-mode)         CSQTT_VK_MODE="$2"; shift 2 ;;
+        --listen)          CSQTT_LISTEN="$2"; shift 2 ;;
+        --fingerprint)     CSQTT_FINGERPRINT="$2"; shift 2 ;;
+        --client-ids)      CSQTT_CLIENT_IDS="$2"; shift 2 ;;
+        --obfs)            CSQTT_OBFS="$2"; shift 2 ;;
+        --turn-transport)  CSQTT_TURN_TRANSPORT="$2"; shift 2 ;;
+        --captcha-mode)    CSQTT_CAPTCHA_MODE="$2"; shift 2 ;;
+        --vk-hash-mode)    CSQTT_VK_HASH_MODE="$2"; shift 2 ;;
+        --vk-auth-mode)    CSQTT_VK_AUTH_MODE="$2"; shift 2 ;;
+        --tun-iface)       CSQTT_TUN_IFACE="$2"; shift 2 ;;
+        --tun-mtu)         CSQTT_TUN_MTU="$2"; shift 2 ;;
         --download-config) DOWNLOAD_CONFIG_AUTO=1; shift ;;
         --no-start)        CSQTT_START=0; shift ;;
         --no-rotate)       CSQTT_ROTATE=0; shift ;;
@@ -126,9 +129,9 @@ fetch() { download_file "$1" "$2"; }
 
 hexdump_bin() {
     if command -v hexdump >/dev/null 2>&1; then
-        hexdump -n 1 -e '1/1 "%02x"'
-    elif command -v od >/dev/null 2>&1 && od -An -tx1 -N1 </dev/null >/dev/null 2>&1; then
-        od -An -tx1 -N1 | tr -d ' \n'
+        hexdump -n 1 -e '1/1 "%02x"' 2>/dev/null
+    elif command -v xxd >/dev/null 2>&1; then
+        xxd -l 1 -p 2>/dev/null
     else
         b=$(dd bs=1 count=1 2>/dev/null | tr -d '\n')
         case "$b" in
@@ -307,7 +310,7 @@ fi
 if [ -z "$DEVICE_ID" ]; then
     DEVICE_ID=$(cat /sys/firmware/devicetree/base/serial-number 2>/dev/null | tr -d '\0')
     [ -n "$DEVICE_ID" ] || DEVICE_ID=$(cat /etc/serial 2>/dev/null)
-    [ -n "$DEVICE_ID" ] || DEVICE_ID=$(hostname)-$(head -c 4 /dev/urandom 2>/dev/null | od -An -tx1 | tr -d ' \n' || hostname)
+    [ -n "$DEVICE_ID" ] || DEVICE_ID=$(hostname)-$(head -c 4 /dev/urandom 2>/dev/null | hexdump -ve '1/1 "%02x"' 2>/dev/null || tr -dc 'a-f0-9' < /dev/urandom | head -c 8 || hostname)
     printf '%s' "$DEVICE_ID" > "$CSQTT_DIR/device_id"
 fi
 log "Device ID: $DEVICE_ID"
@@ -318,23 +321,31 @@ PEER="$PEER"
 PASSWORD="$PASSWORD"
 HASHES="$CSQTT_HASHES"
 WORKERS="$CSQTT_WORKERS"
-VK_MODE="auto_js"
+VK_MODE="$CSQTT_VK_MODE"
 DEVICE_ID="$DEVICE_ID"
-LISTEN="127.0.0.1:9000"
-FINGERPRINT="firefox"
-CLIENT_IDS="8202606,6287487"
-OBFS="video"
-TURN_TRANSPORT="udp"
-CAPTCHA_MODE="auto"
-TUN_IFACE="csqtt0"
-TUN_MTU="1300"
+LISTEN="$CSQTT_LISTEN"
+FINGERPRINT="$CSQTT_FINGERPRINT"
+CLIENT_IDS="$CSQTT_CLIENT_IDS"
+OBFS="$CSQTT_OBFS"
+TURN_TRANSPORT="$CSQTT_TURN_TRANSPORT"
+CAPTCHA_MODE="$CSQTT_CAPTCHA_MODE"
+VK_HASH_MODE="$CSQTT_VK_HASH_MODE"
+VK_AUTH_MODE="$CSQTT_VK_AUTH_MODE"
+TUN_IFACE="$CSQTT_TUN_IFACE"
+TUN_MTU="$CSQTT_TUN_MTU"
 EOF
 chmod 600 "$CSQTT_DIR/csqtt.conf"
 log "Конфиг: $CSQTT_DIR/csqtt.conf (HASHES=$CSQTT_HASHES · WORKERS=$CSQTT_WORKERS)"
 
-# ── 8a. Загрузка config.yaml для Mihomo (Интегрировано) ────────────────────
+# ── 8a. Загрузка config.yaml для Mihomo ─────────────────────────────────────
 do_download_config() {
     mkdir -p "$MIHOMO_DIR" 2>/dev/null
+
+    if [ -f "${MIHOMO_CONF_FILE}" ]; then
+        cp -f "${MIHOMO_CONF_FILE}" "${MIHOMO_CONF_FILE}.bak"
+        log "Обнаружен существующий файл. Бэкап сохранён в: ${MIHOMO_CONF_FILE}.bak"
+    fi
+
     log "Загрузка config.yaml в ${MIHOMO_CONF_FILE}..."
     download_file "${CONFIG_URL}" "${MIHOMO_CONF_FILE}"
     log "Файл конфигурации сохранён: ${MIHOMO_CONF_FILE}"
@@ -345,16 +356,16 @@ if [ "$DOWNLOAD_CONFIG_AUTO" -eq 1 ]; then
 elif [ -t 0 ]; then
     printf '\nВыберите действие для csqtt-config.yaml (Mihomo):\n'
     printf ' 1) Скачать и поместить config.yaml в %s\n' "$MIHOMO_DIR"
-    printf ' 2) Пропустить\n'
+    printf ' 2) Пропустить и долго мучаться с конфигом самому\n'
     while true; do
-        printf 'Выберите пункт [1-2] (Enter = 2): '
+        printf 'Выберите пункт [1-2] (Enter = 1): '
         read -r CONFIG_CHOICE
         case "$CONFIG_CHOICE" in
-            1)
+            1|"")
                 do_download_config
                 break
                 ;;
-            2|"")
+            2)
                 log "Пропуск загрузки config.yaml."
                 break
                 ;;
@@ -384,15 +395,18 @@ set -- "$DIR/csqtt-client" \
     --turn-transport "$TURN_TRANSPORT" \
     --captcha-mode "$CAPTCHA_MODE" \
     --vk-pool "$DIR/vk_pool" \
-    --vk-calls "$HASHES"
+    --vk-calls "$HASHES" \
+    --vk-hash-mode "${VK_HASH_MODE:-auto_js}" \
+    --vk-auth-mode "${VK_AUTH_MODE:-auto_js}"
 
-if [ -n "$TUN_IFACE" ]; then
+if [ -n "${TUN_IFACE:-}" ]; then
     set -- "$@" --tun "$TUN_IFACE" --tun-mtu "$TUN_MTU"
 fi
 
 TOKEN=$(cat "$DIR/vk_token" 2>/dev/null) || { echo "нет vk_token"; exit 1; }
 BOOTSTRAP=$(printf '{"token":"%s"}' "$TOKEN" | base64 | tr -d '\n')
-set -- "$@" --vk-hash-mode auto_js --vk-auth-mode auto_js
+SET_VK_MODE="${VK_MODE:-auto_js}"
+
 FIFO="$DIR/bootstrap.fifo"
 [ -p "$FIFO" ] || mkfifo "$FIFO" || { echo "не удалось создать fifo"; exit 1; }
 printf 'VK_JS_BOOTSTRAP:%s\n' "$BOOTSTRAP" > "$FIFO" &
