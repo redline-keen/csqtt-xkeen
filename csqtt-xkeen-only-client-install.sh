@@ -7,7 +7,7 @@ CSQTT_TAG="2.0"
 CSQTT_LOCAL_BIN=""
 CSQTT_VK_TOKEN=""
 CSQTT_HASHES=""
-CSQTT_WORKERS="108"
+CSQTT_WORKERS="54"
 CSQTT_START=1
 CSQTT_ROTATE=1
 CSQTT_WATCHDOG=1
@@ -314,6 +314,12 @@ log "Конфиг: $CSQTT_DIR/csqtt.conf (HASHES=$CSQTT_HASHES · WORKERS=$CSQTT
 # ── 8a. Загрузка config.yaml для Mihomo ─────────────────────────────────────
 do_download_config() {
     mkdir -p "$MIHOMO_DIR" 2>/dev/null
+
+    if [ -f "${MIHOMO_CONF_FILE}" ]; then
+        cp -f "${MIHOMO_CONF_FILE}" "${MIHOMO_CONF_FILE}.bak"
+        log "Обнаружен существующий файл. Бэкап сохранён в: ${MIHOMO_CONF_FILE}.bak"
+    fi
+
     log "Загрузка config.yaml в ${MIHOMO_CONF_FILE}..."
     download_file "${CONFIG_URL}" "${MIHOMO_CONF_FILE}"
     log "Файл конфигурации сохранён: ${MIHOMO_CONF_FILE}"
@@ -324,9 +330,9 @@ if [ "$DOWNLOAD_CONFIG_AUTO" -eq 1 ]; then
 elif [ -t 0 ]; then
     printf '\nВыберите действие для csqtt-config.yaml (Mihomo):\n'
     printf ' 1) Скачать и поместить config.yaml в %s\n' "$MIHOMO_DIR"
-    printf ' 2) Пропустить\n'
+    printf ' 2) Пропустить и долго мучаться с конфигом самому\n'
     while true; do
-        printf 'Выберите пункт [1-2] (Enter = 2): '
+        printf 'Выберите пункт [1-2] (Enter = 1): '
         read -r CONFIG_CHOICE
         case "$CONFIG_CHOICE" in
             1)
