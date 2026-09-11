@@ -9,17 +9,16 @@
 #   sh csqtt-github-install.sh --repo ВАШ_ЛОГИН/ВАШ_РЕПО ...
 #
 # Опции:
-#   --repo OWNER/REPO            GitHub-репозиторий с бинарниками (по умолч. redline-keen/csqtt-xkeen)
-#   --tag TAG                    тег релиза (по умолч. последний)
-#   --local-bin ПУТЬ             не скачивать, использовать локальный файл
-#   --vk-token ТОКЕН             VK access token (иначе скрипт спросит интерактивно)
-#   --hashes N                   число хешей в пуле 1..6 (по умолч. спрашивает, стандарт 4)
-#   --workers N                  воркеры 9..162 (по умолч. спрашивает; автоматически
-#                                урезается до хеши×27 и выравнивается кратно 9)
-#   --download-config            автоматически скачивать config.yaml для Mihomo без запроса
-#   --no-start                   установить, но не запускать
-#   --no-rotate                  не ставить cron-ротацию хешей
-#   --no-watchdog                не ставить cron-watchdog (автоперезапуск при сбое)
+#   --repo OWNER/REPO             GitHub-репозиторий с бинарниками (по умолч. amurcanov/csqtt)
+#   --tag TAG                     тег релиза (по умолч. последний)
+#   --local-bin ПУТЬ              не скачивать, использовать локальный файл
+#   --vk-token ТОКЕН              VK access token (иначе скрипт спросит интерактивно)
+#   --hashes N                    число хешей в пуле 1..6 (по умолч. спрашивает, стандарт 4)
+#   --workers N                   воркеры 9..162 (по умолч. спрашивает; автоматически
+#                                 урезается до хеши×27 и выравнивается кратно 9)
+#   --no-start                    установить, но не запускать
+#   --no-rotate                   не ставить cron-ротацию хешей
+#   --no-watchdog                 не ставить cron-watchdog (автоперезапуск при сбое)
 
 set -u
 
@@ -33,50 +32,31 @@ CSQTT_START=1
 CSQTT_ROTATE=1
 CSQTT_WATCHDOG=1
 CSQTT_LINK=""
-DOWNLOAD_CONFIG_AUTO=0
-
 WORKERS_PER_HASH=27
 WORKERS_STEP=9
 MAX_HASHES=6
 
-CONFIG_URL="https://raw.githubusercontent.com/${CSQTT_REPO}/main/csqtt-config.yaml"
-MIHOMO_DIR="/opt/etc/mihomo"
-MIHOMO_CONF_FILE="${MIHOMO_DIR}/config.yaml"
-
 # ── разбор аргументов ────────────────────────────────────────────────────────
 while [ $# -gt 0 ]; do
     case "$1" in
-        --repo)            CSQTT_REPO="$2"; shift 2 ;;
-        --tag)             CSQTT_TAG="$2"; shift 2 ;;
-        --local-bin)       CSQTT_LOCAL_BIN="$2"; shift 2 ;;
-        --vk-token)        CSQTT_VK_TOKEN="$2"; shift 2 ;;
-        --hashes)          CSQTT_HASHES="$2"; shift 2 ;;
-        --workers)         CSQTT_WORKERS="$2"; shift 2 ;;
-        --download-config) DOWNLOAD_CONFIG_AUTO=1; shift ;;
-        --no-start)        CSQTT_START=0; shift ;;
-        --no-rotate)       CSQTT_ROTATE=0; shift ;;
-        --no-watchdog)     CSQTT_WATCHDOG=0; shift ;;
-        -h|--help)         sed -n '2,45p' "$0"; exit 0 ;;
-        csqtt://*)         CSQTT_LINK="$1"; shift ;;
-        *)                 echo "Неизвестный аргумент: $1"; exit 1 ;;
+        --repo)        CSQTT_REPO="$2"; shift 2 ;;
+        --tag)         CSQTT_TAG="$2"; shift 2 ;;
+        --local-bin)   CSQTT_LOCAL_BIN="$2"; shift 2 ;;
+        --vk-token)    CSQTT_VK_TOKEN="$2"; shift 2 ;;
+        --hashes)      CSQTT_HASHES="$2"; shift 2 ;;
+        --workers)     CSQTT_WORKERS="$2"; shift 2 ;;
+        --no-start)    CSQTT_START=0; shift ;;
+        --no-rotate)   CSQTT_ROTATE=0; shift ;;
+        --no-watchdog) CSQTT_WATCHDOG=0; shift ;;
+        -h|--help)     sed -n '2,45p' "$0"; exit 0 ;;
+        csqtt://*)     CSQTT_LINK="$1"; shift ;;
+        *)             echo "Неизвестный аргумент: $1"; exit 1 ;;
     esac
 done
 
 log()  { printf '\033[1;32m[CSQTT]\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m[CSQTT]\033[0m %s\n' "$*"; }
 die()  { printf '\033[1;31m[CSQTT ОШИБКА]\033[0m %s\n' "$*"; exit 1; }
-
-download_file() {
-    _url="$1"
-    _out="$2"
-    if command -v curl >/dev/null 2>&1; then
-        curl -kfsSL -o "$_out" "$_url"
-    elif command -v wget >/dev/null 2>&1; then
-        wget --no-check-certificate -q -O "$_out" "$_url"
-    else
-        die "Нужен curl или wget для скачивания файлов"
-    fi
-}
 
 # ── 1. каталог установки (Entware → /opt, OpenWrt → /etc) ───────────────────
 if [ -d /opt/entware ] || [ -d /opt/etc/init.d ]; then
@@ -117,12 +97,21 @@ log "Архитектура: $ARCH_KEY ($(uname -m)) · стиль инициа�
 BIN_PATH="$CSQTT_DIR/csqtt-client"
 TMP_BIN_PATH="$CSQTT_DIR/csqtt-client.tmp"
 
+# Останавливаем запущенную службу и процесс перед записью
 if [ -x "$INIT_SCRIPT" ]; then
     "$INIT_SCRIPT" stop >/dev/null 2>&1
 fi
 killall -9 csqtt-client >/dev/null 2>&1
 
-fetch() { download_file "$1" "$2"; }
+fetch() { # fetch URL DEST
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL "$1" -o "$2"
+    elif command -v wget >/dev/null 2>&1; then
+        wget -q -O "$2" "$1"
+    else
+        die "Нужен curl или wget"
+    fi
+}
 
 hexdump_bin() {
     if command -v hexdump >/dev/null 2>&1; then
@@ -331,39 +320,6 @@ TUN_MTU="1300"
 EOF
 chmod 600 "$CSQTT_DIR/csqtt.conf"
 log "Конфиг: $CSQTT_DIR/csqtt.conf (HASHES=$CSQTT_HASHES · WORKERS=$CSQTT_WORKERS)"
-
-# ── 8a. Загрузка config.yaml для Mihomo (Интегрировано) ────────────────────
-do_download_config() {
-    mkdir -p "$MIHOMO_DIR" 2>/dev/null
-    log "Загрузка config.yaml в ${MIHOMO_CONF_FILE}..."
-    download_file "${CONFIG_URL}" "${MIHOMO_CONF_FILE}"
-    log "Файл конфигурации сохранён: ${MIHOMO_CONF_FILE}"
-}
-
-if [ "$DOWNLOAD_CONFIG_AUTO" -eq 1 ]; then
-    do_download_config
-elif [ -t 0 ]; then
-    printf '\nВыберите действие для csqtt-config.yaml (Mihomo):\n'
-    printf ' 1) Скачать и поместить config.yaml в %s\n' "$MIHOMO_DIR"
-    printf ' 2) Пропустить\n'
-    while true; do
-        printf 'Выберите пункт [1-2] (Enter = 2): '
-        read -r CONFIG_CHOICE
-        case "$CONFIG_CHOICE" in
-            1)
-                do_download_config
-                break
-                ;;
-            2|"")
-                log "Пропуск загрузки config.yaml."
-                break
-                ;;
-            *)
-                warn "Ошибка: выберите 1 или 2."
-                ;;
-        esac
-    done
-fi
 
 # ── 9. обёртка запуска (fifo + exec, пул хешей) ─────────────────────────────
 cat > "$CSQTT_DIR/csqtt-run.sh" <<'EOF'
