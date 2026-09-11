@@ -126,9 +126,9 @@ fetch() { download_file "$1" "$2"; }
 
 hexdump_bin() {
     if command -v hexdump >/dev/null 2>&1; then
-        hexdump -n 1 -e '1/1 "%02x"'
-    elif command -v od >/dev/null 2>&1 && od -An -tx1 -N1 </dev/null >/dev/null 2>&1; then
-        od -An -tx1 -N1 | tr -d ' \n'
+        hexdump -n 1 -e '1/1 "%02x"' 2>/dev/null
+    elif command -v xxd >/dev/null 2>&1; then
+        xxd -l 1 -p 2>/dev/null
     else
         b=$(dd bs=1 count=1 2>/dev/null | tr -d '\n')
         case "$b" in
@@ -307,7 +307,7 @@ fi
 if [ -z "$DEVICE_ID" ]; then
     DEVICE_ID=$(cat /sys/firmware/devicetree/base/serial-number 2>/dev/null | tr -d '\0')
     [ -n "$DEVICE_ID" ] || DEVICE_ID=$(cat /etc/serial 2>/dev/null)
-    [ -n "$DEVICE_ID" ] || DEVICE_ID=$(hostname)-$(head -c 4 /dev/urandom 2>/dev/null | od -An -tx1 | tr -d ' \n' || hostname)
+    [ -n "$DEVICE_ID" ] || DEVICE_ID=$(hostname)-$(head -c 4 /dev/urandom 2>/dev/null | hexdump -ve '1/1 "%02x"' 2>/dev/null || tr -dc 'a-f0-9' < /dev/urandom | head -c 8 || hostname)
     printf '%s' "$DEVICE_ID" > "$CSQTT_DIR/device_id"
 fi
 log "Device ID: $DEVICE_ID"
@@ -332,7 +332,7 @@ EOF
 chmod 600 "$CSQTT_DIR/csqtt.conf"
 log "Конфиг: $CSQTT_DIR/csqtt.conf (HASHES=$CSQTT_HASHES · WORKERS=$CSQTT_WORKERS)"
 
-# ── 8a. Загрузка config.yaml для Mihomo (Интегрировано) ────────────────────
+# ── 8a. Загрузка config.yaml для Mihomo ─────────────────────────────────────
 do_download_config() {
     mkdir -p "$MIHOMO_DIR" 2>/dev/null
     log "Загрузка config.yaml в ${MIHOMO_CONF_FILE}..."
