@@ -14,6 +14,19 @@ CSQTT_WATCHDOG=1
 CSQTT_LINK=""
 DOWNLOAD_CONFIG_AUTO=0
 
+# Расширенные параметры csqtt-client по умолчанию
+CSQTT_VK_MODE="auto_js"
+CSQTT_LISTEN="127.0.0.1:9000"
+CSQTT_FINGERPRINT="firefox"
+CSQTT_CLIENT_IDS="8202606,6287487"
+CSQTT_OBFS="video"
+CSQTT_TURN_TRANSPORT="udp"
+CSQTT_CAPTCHA_MODE="auto"
+CSQTT_VK_HASH_MODE="auto_js"
+CSQTT_VK_AUTH_MODE="auto_js"
+CSQTT_TUN_IFACE="csqtt0"
+CSQTT_TUN_MTU="1300"
+
 WORKERS_PER_HASH=27
 WORKERS_STEP=9
 MAX_HASHES=6
@@ -31,6 +44,17 @@ while [ $# -gt 0 ]; do
         --vk-token)        CSQTT_VK_TOKEN="$2"; shift 2 ;;
         --hashes)          CSQTT_HASHES="$2"; shift 2 ;;
         --workers)         CSQTT_WORKERS="$2"; shift 2 ;;
+        --vk-mode)         CSQTT_VK_MODE="$2"; shift 2 ;;
+        --listen)          CSQTT_LISTEN="$2"; shift 2 ;;
+        --fingerprint)     CSQTT_FINGERPRINT="$2"; shift 2 ;;
+        --client-ids)      CSQTT_CLIENT_IDS="$2"; shift 2 ;;
+        --obfs)            CSQTT_OBFS="$2"; shift 2 ;;
+        --turn-transport)  CSQTT_TURN_TRANSPORT="$2"; shift 2 ;;
+        --captcha-mode)    CSQTT_CAPTCHA_MODE="$2"; shift 2 ;;
+        --vk-hash-mode)    CSQTT_VK_HASH_MODE="$2"; shift 2 ;;
+        --vk-auth-mode)    CSQTT_VK_AUTH_MODE="$2"; shift 2 ;;
+        --tun-iface)       CSQTT_TUN_IFACE="$2"; shift 2 ;;
+        --tun-mtu)         CSQTT_TUN_MTU="$2"; shift 2 ;;
         --download-config) DOWNLOAD_CONFIG_AUTO=1; shift ;;
         --no-start)        CSQTT_START=0; shift ;;
         --no-rotate)       CSQTT_ROTATE=0; shift ;;
@@ -297,16 +321,18 @@ PEER="$PEER"
 PASSWORD="$PASSWORD"
 HASHES="$CSQTT_HASHES"
 WORKERS="$CSQTT_WORKERS"
-VK_MODE="auto_js"
+VK_MODE="$CSQTT_VK_MODE"
 DEVICE_ID="$DEVICE_ID"
-LISTEN="127.0.0.1:9000"
-FINGERPRINT="firefox"
-CLIENT_IDS="8202606,6287487"
-OBFS="video"
-TURN_TRANSPORT="udp"
-CAPTCHA_MODE="auto"
-TUN_IFACE="csqtt0"
-TUN_MTU="1300"
+LISTEN="$CSQTT_LISTEN"
+FINGERPRINT="$CSQTT_FINGERPRINT"
+CLIENT_IDS="$CSQTT_CLIENT_IDS"
+OBFS="$CSQTT_OBFS"
+TURN_TRANSPORT="$CSQTT_TURN_TRANSPORT"
+CAPTCHA_MODE="$CSQTT_CAPTCHA_MODE"
+VK_HASH_MODE="$CSQTT_VK_HASH_MODE"
+VK_AUTH_MODE="$CSQTT_VK_AUTH_MODE"
+TUN_IFACE="$CSQTT_TUN_IFACE"
+TUN_MTU="$CSQTT_TUN_MTU"
 EOF
 chmod 600 "$CSQTT_DIR/csqtt.conf"
 log "Конфиг: $CSQTT_DIR/csqtt.conf (HASHES=$CSQTT_HASHES · WORKERS=$CSQTT_WORKERS)"
@@ -335,11 +361,11 @@ elif [ -t 0 ]; then
         printf 'Выберите пункт [1-2] (Enter = 1): '
         read -r CONFIG_CHOICE
         case "$CONFIG_CHOICE" in
-            1)
+            1|"")
                 do_download_config
                 break
                 ;;
-            2|"")
+            2)
                 log "Пропуск загрузки config.yaml."
                 break
                 ;;
@@ -369,15 +395,18 @@ set -- "$DIR/csqtt-client" \
     --turn-transport "$TURN_TRANSPORT" \
     --captcha-mode "$CAPTCHA_MODE" \
     --vk-pool "$DIR/vk_pool" \
-    --vk-calls "$HASHES"
+    --vk-calls "$HASHES" \
+    --vk-hash-mode "${VK_HASH_MODE:-auto_js}" \
+    --vk-auth-mode "${VK_AUTH_MODE:-auto_js}"
 
-if [ -n "$TUN_IFACE" ]; then
+if [ -n "${TUN_IFACE:-}" ]; then
     set -- "$@" --tun "$TUN_IFACE" --tun-mtu "$TUN_MTU"
 fi
 
 TOKEN=$(cat "$DIR/vk_token" 2>/dev/null) || { echo "нет vk_token"; exit 1; }
 BOOTSTRAP=$(printf '{"token":"%s"}' "$TOKEN" | base64 | tr -d '\n')
-set -- "$@" --vk-hash-mode auto_js --vk-auth-mode auto_js
+SET_VK_MODE="${VK_MODE:-auto_js}"
+
 FIFO="$DIR/bootstrap.fifo"
 [ -p "$FIFO" ] || mkfifo "$FIFO" || { echo "не удалось создать fifo"; exit 1; }
 printf 'VK_JS_BOOTSTRAP:%s\n' "$BOOTSTRAP" > "$FIFO" &
