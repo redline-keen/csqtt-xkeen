@@ -217,39 +217,74 @@ esac
 
 # ── 4. ссылка подключения ────────────────────────────────────────────────────
 urldecode() {
-    s="$1"; out=""; i=0; n=${#s}
-    while [ "$i" -lt "$n" ]; do
-        c=${s:$i:1}
-        if [ "$c" = "%" ] && [ $((i + 2)) -lt "$n" ]; then
-            out="$out$(printf '\\x'${s:$((i+1)):2})"
-            i=$((i + 3))
-        else
-            out="$out$c"; i=$((i + 1))
-        fi
+    # Реализация без bash-специфичных подстрок (${s:i:n}) — на Keenetic/OpenWrt
+    # /bin/sh это ash/dash, где такой синтаксис даёт "Bad substitution".
+    s="$1"
+    out=""
+    while [ -n "$s" ]; do
+        c=${s%"${s#?}"}   # первый символ
+        s=${s#?}           # остаток строки
+        case "$c" in
+            '%')
+                if [ -n "$s" ]; then
+                    h1=${s%"${s#?}"}
+                    s=${s#?}
+                    h2=${s%"${s#?}"}
+                    s=${s#?}
+                    # dash/ash builtin printf не понимает \xHH — конвертируем в восьмеричное
+                    oct=$(printf '%o' "0x${h1}${h2}" 2>/dev/null)
+                    if [ -n "$oct" ]; then
+                        out="$out$(printf "\\${oct}")"
+                    fi
+                else
+                    out="$out$c"
+                fi
+                ;;
+            *)
+                out="$out$c"
+                ;;
+        esac
     done
     printf '%s' "$out"
 }
 
-if [ -z "$CSQTT_LINK" ]; then
-    printf 'Вставьте ссылку подключения (csqtt://connect?...): '
-    read -r CSQTT_LINK
-fi
-[ -n "$CSQTT_LINK" ] || die "ссылка подключения не указана"
+# Бесконечный цикл: просим ссылку, пока в ней не найдутся host / peer / password
+LINK_ATTEMPT=0
+while :; do
+    LINK_ATTEMPT=$((LINK_ATTEMPT + 1))
+    if [ -z "$CSQTT_LINK" ]; then
+        printf 'Вставьте ссылку подключения (csqtt://connect?...): '
+        read -r CSQTT_LINK || die "не удалось прочитать ссылку (нет stdin)"
+    fi
 
-query=$(printf '%s' "$CSQTT_LINK" | sed 's|^csqtt://[^?]*?||')
-PEER_HOST=""; PEER_PORT=""; PASSWORD=""
-oldIFS="$IFS"; IFS='&'
-for kv in $query; do
-    k=${kv%%=*}; v=${kv#*=}
-    case "$k" in
-        host)     PEER_HOST=$(urldecode "$v") ;;
-        peer)     PEER_PORT=$(urldecode "$v") ;;
-        password) PASSWORD=$(urldecode "$v") ;;
+    case "$CSQTT_LINK" in
+        csqtt://*) ;;
+        *)
+            warn "Ссылка должна начинаться с csqtt:// — попробуйте ещё раз (попытка $LINK_ATTEMPT)"
+            CSQTT_LINK=""
+            continue
+            ;;
     esac
+
+    query=$(printf '%s' "$CSQTT_LINK" | sed 's|^csqtt://[^?]*?||')
+    PEER_HOST=""; PEER_PORT=""; PASSWORD=""
+    oldIFS="$IFS"; IFS='&'
+    for kv in $query; do
+        k=${kv%%=*}; v=${kv#*=}
+        case "$k" in
+            host)     PEER_HOST=$(urldecode "$v") ;;
+            peer)     PEER_PORT=$(urldecode "$v") ;;
+            password) PASSWORD=$(urldecode "$v") ;;
+        esac
+    done
+    IFS="$oldIFS"
+
+    if [ -n "$PEER_HOST" ] && [ -n "$PEER_PORT" ] && [ -n "$PASSWORD" ]; then
+        break
+    fi
+    warn "В ссылке не найдены host / peer / password — попробуйте ещё раз (попытка $LINK_ATTEMPT)"
+    CSQTT_LINK=""
 done
-IFS="$oldIFS"
-[ -n "$PEER_HOST" ] && [ -n "$PEER_PORT" ] && [ -n "$PASSWORD" ] \
-    || die "в ссылке не найдены host / peer / password"
 PEER="$PEER_HOST:$PEER_PORT"
 log "Пир: $PEER"
 
@@ -259,14 +294,28 @@ if [ -z "$CSQTT_VK_TOKEN" ] && [ -t 0 ] && [ -f "$VK_TOKEN_FILE" ]; then
     CSQTT_VK_TOKEN=$(cat "$VK_TOKEN_FILE")
     warn "Использован сохранённый VK-токен из $VK_TOKEN_FILE"
 fi
-if [ -z "$CSQTT_VK_TOKEN" ]; then
+
+# Проверка формата: непусто, без кавычек/бэкслэшей, только допустимые символы, разумная длина
+vk_token_is_valid() {
+    _t="$1"
+    [ -n "$_t" ] || return 1
+    case "$_t" in
+        *'"'*|*'\'*) return 1 ;;
+        *[!A-Za-z0-9_-]*) return 1 ;;
+    esac
+    [ "${#_t}" -ge 50 ] || return 1
+    return 0
+}
+
+VK_ATTEMPT=0
+while ! vk_token_is_valid "${CSQTT_VK_TOKEN:-}"; do
+    VK_ATTEMPT=$((VK_ATTEMPT + 1))
+    if [ "$VK_ATTEMPT" -gt 1 ]; then
+        warn "Некорректный VK access token (пустой, короткий или с недопустимыми символами) — попробуйте ещё раз (попытка $VK_ATTEMPT)"
+    fi
     printf 'Вставьте ВЕЧНЫЙ VK access token (oauth.vk.ru → access_token=...): '
-    read -r CSQTT_VK_TOKEN
-fi
-[ -n "$CSQTT_VK_TOKEN" ] || die "нужен VK access token"
-case "$CSQTT_VK_TOKEN" in
-    *'"*|*'\'*) die "токен содержит недопустимые символы" ;;
-esac
+    read -r CSQTT_VK_TOKEN || die "не удалось прочитать токен (нет stdin)"
+done
 umask 077
 printf '%s' "$CSQTT_VK_TOKEN" > "$VK_TOKEN_FILE"
 log "VK-токен сохранён в $VK_TOKEN_FILE (права 600; менять — там же)"
