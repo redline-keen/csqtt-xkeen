@@ -8,7 +8,8 @@
 #   26092026-2259-tslog: aarch64/mipsel/mipsbe, статичный musl, smoke qemu OK).
 #   Обёртка csqtt-run.sh экспортирует TZ (по умолчанию MSK-3, переопределяется
 #   в csqtt.conf); обрезка логов в watchdog'е переведена на cat (mv отвязывал
-#   fd клиента — лог замирал после обрезки).
+#   fd клиента — лог замирал после обрезки); device-id и VK-токен — строгая
+#   валидация из 2325-deviceidfix/1948.
 #   SHA256: aarch64   3d4e6988bf8a5f5a115503ff4328e364c5c973bcfe2bb22a130a5115ed4d8805
 #           mipsel    51516ac983575be3ef515e47d9dee3a96144049327c0a62f6d09f8d386d716a0
 #           mipsbe    138afdff6b285ed46df347cfc7293eb435a3733a5f0fbbcf46502e5bc0a99e7e
@@ -51,9 +52,9 @@
 
 set -u
 
-CSQTT_REPO="redline-keen/csqtt-xkeen"   # ← поменяйте на свой репозиторий, если выложили
+CSQTT_REPO="amurcanov/csqtt"   # ← поменяйте на свой репозиторий, если выложили
                                #   роутерные бинарники в свой GitHub-релиз
-CSQTT_TAG="2.5"
+CSQTT_TAG=""
 CSQTT_LOCAL_BIN=""
 CSQTT_VK_TOKEN=""
 CSQTT_HASHES=""
@@ -279,10 +280,28 @@ if [ -z "$CSQTT_VK_TOKEN" ]; then
     printf 'Вставьте ВЕЧНЫЙ VK access token (oauth.vk.ru → access_token=...): '
     read -r CSQTT_VK_TOKEN
 fi
-[ -n "$CSQTT_VK_TOKEN" ] || die "нужен VK access token"
-case "$CSQTT_VK_TOKEN" in
-    *'"*|*'\'*) die "токен содержит недопустимые символы" ;;
-esac
+vk_token_is_valid() {
+    _t="$1"
+    [ -n "$_t" ] || return 1
+    case "$_t" in
+        *'"*|*'\'*) return 1 ;;
+        *[!A-Za-z0-9_.-]*) return 1 ;;
+        *..*) return 1 ;;   # две точки подряд — точно не токен
+        .*|*.) return 1 ;;  # точка в начале/конце — тоже не токен
+    esac
+    [ "${#_t}" -ge 50 ] || return 1
+    return 0
+}
+
+VK_ATTEMPT=0
+while ! vk_token_is_valid "${CSQTT_VK_TOKEN:-}"; do
+    VK_ATTEMPT=$((VK_ATTEMPT + 1))
+    if [ "$VK_ATTEMPT" -gt 1 ]; then
+        warn "Некорректный VK access token (пустой, короткий или с недопустимыми символами) — попробуйте ещё раз (попытка $VK_ATTEMPT)"
+    fi
+    printf 'Вставьте ВЕЧНЫЙ VK access token (oauth.vk.ru → access_token=...): '
+    read -r CSQTT_VK_TOKEN || die "не удалось прочитать токен (нет stdin)"
+done
 umask 077
 printf '%s' "$CSQTT_VK_TOKEN" > "$VK_TOKEN_FILE"
 log "VK-токен сохранён в $VK_TOKEN_FILE (права 600; менять — там же)"
@@ -321,16 +340,51 @@ CSQTT_WORKERS=$((CSQTT_WORKERS / WORKERS_STEP * WORKERS_STEP))
 log "Хешей: $CSQTT_HASHES · воркеров: $CSQTT_WORKERS ($((CSQTT_WORKERS / WORKERS_PER_HASH)) на хеш, $((CSQTT_WORKERS / WORKERS_STEP)) групп)"
 
 # ── 7. device-id (стабильный) ────────────────────────────────────────────────
+sanitize_id() {   # вычитаем мусор: только [A-Za-z0-9:. -], срезаем ведущие/хвостовые разделители
+    printf '%s' "$1" | tr -cd 'A-Za-z0-9:.-' | sed 's/^[.:-]*//; s/[.:-]*$//'
+}
+first_mac() {    # MAC br-lan → eth0 → lan → wan → первый ненулевой в /sys/class/net
+    for dev in br-lan eth0 lan wan; do
+        [ -f "/sys/class/net/$dev/address" ] || continue
+        m=$(cat "/sys/class/net/$dev/address" 2>/dev/null)
+        case "$m" in ""|00:00:00:00:00:00) : ;; *) printf '%s' "$m"; return 0 ;; esac
+    done
+    for f in /sys/class/net/*/address; do
+        [ -f "$f" ] || continue
+        m=$(cat "$f" 2>/dev/null)
+        case "$m" in ""|00:00:00:00:00:00) : ;; *) printf '%s' "$m"; return 0 ;; esac
+    done
+    return 0
+}
+random_hex() {   # портативный hex без od: tr -dc из urandom, hexdump как запасной
+    r=$(tr -dc 'a-f0-9' < /dev/urandom 2>/dev/null | head -c 16)
+    if [ "${#r}" -lt 8 ] && command -v hexdump >/dev/null 2>&1; then
+        r=$(hexdump -n 8 -e '8/1 "%02x"' /dev/urandom 2>/dev/null)
+    fi
+    printf '%s' "$r"
+}
+
 DEVICE_ID=""
+# сохранённый принимаем только если он не вырожденный (не пусто, не одно «-»)
 if [ -f "$CSQTT_DIR/device_id" ]; then
-    DEVICE_ID=$(cat "$CSQTT_DIR/device_id" 2>/dev/null)
+    DEVICE_ID=$(sanitize_id "$(cat "$CSQTT_DIR/device_id" 2>/dev/null)")
 fi
 if [ -z "$DEVICE_ID" ]; then
-    DEVICE_ID=$(cat /sys/firmware/devicetree/base/serial-number 2>/dev/null | tr -d '\0')
-    [ -n "$DEVICE_ID" ] || DEVICE_ID=$(cat /etc/serial 2>/dev/null)
-    [ -n "$DEVICE_ID" ] || DEVICE_ID=$(hostname)-$(head -c 4 /dev/urandom 2>/dev/null | od -An -tx1 | tr -d ' \n' || hostname)
+    # формат: Keenetic-<последние 4 hex-цифры MAC>, при недоступности MAC — random
+    MAC4=$(first_mac | tr -d ':\n ' | tail -c 4)
+    case "$MAC4" in
+        *[!0-9a-fA-F]*|"") MAC4="" ;;
+        *) MAC4=$(printf '%s' "$MAC4" | tr 'A-F' 'a-f') ;;
+    esac
+    if [ -n "$MAC4" ]; then
+        DEVICE_ID="Keenetic-$MAC4"
+    else
+        DEVICE_ID="Keenetic-$(random_hex)"
+    fi
     printf '%s' "$DEVICE_ID" > "$CSQTT_DIR/device_id"
+    chmod 600 "$CSQTT_DIR/device_id" 2>/dev/null
 fi
+[ -n "$DEVICE_ID" ] || die "не удалось определить device-id (пусто даже после рандома?)"
 log "Device ID: $DEVICE_ID"
 
 # ── 8. конфиг ───────────────────────────────────────────────────────────────
@@ -622,7 +676,7 @@ for log in "$LOG" __LOG_FILE__; do
     [ -f "$log" ] || continue
     FILE_SIZE=$(du -k "$log" 2>/dev/null | awk '{print $1}')
     if [ -n "$FILE_SIZE" ] && [ "$FILE_SIZE" -gt "$MAX_SIZE_KB" ]; then
-        tail -n 500 "$log" > "${log}.tmp" && cat "${log}.tmp" > "$log" && rm -f "${log}.tmp"   # НЕ mv: клиент держит лог открытым, mv отвязывает fd — лог замирает
+        tail -n 500 "$log" > "${log}.tmp" && cat "${log}.tmp" > "$log" && rm -f "${log}.tmp"   # НЕ mv: клиент держит лог открытым, mv отвязывает fd
         echo "$(stamp) [WATCHDOG] Лог $log обрезан." >> "$LOG"
     fi
 done
