@@ -3,7 +3,7 @@
 set -u
 
 CSQTT_REPO="redline-keen/csqtt-xkeen"
-CSQTT_TAG="2.6"
+CSQTT_TAG="2.5"
 CSQTT_LOCAL_BIN=""
 CSQTT_VK_TOKEN=""
 CSQTT_HASHES=""
