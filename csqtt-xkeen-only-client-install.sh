@@ -15,7 +15,7 @@
 set -u
 
 CSQTT_REPO="redline-keen/csqtt-xkeen"
-CSQTT_TAG="2.5"
+CSQTT_TAG="2.7"
 CSQTT_LOCAL_BIN=""
 CSQTT_VK_TOKEN=""
 CSQTT_WORKERS=""          # пусто = спросить (Enter = 50); кратно 10, диапазон 10..100
