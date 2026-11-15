@@ -64,6 +64,7 @@ while [ $# -gt 0 ]; do
         --download-config) DOWNLOAD_CONFIG_AUTO=1; shift ;;
         --no-start)        CSQTT_START=0; shift ;;
         --no-watchdog)     CSQTT_WATCHDOG=0; shift ;;
+        --test-decrypt)    CSQTT_TEST_DECRYPT=1; shift ;;
         -h|--help)         sed -n '2,45p' "$0"; exit 0 ;;
         csqtt://*|https://*|http://*) CSQTT_LINK="$1"; shift ;;
         *)                 echo "Неизвестный аргумент: $1"; exit 1 ;;
@@ -73,6 +74,67 @@ done
 log()  { printf '\033[1;32m[CSQTT]\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m[CSQTT]\033[0m %s\n' "$*"; }
 die()  { printf '\033[1;31m[CSQTT ОШИБКА]\033[0m %s\n' "$*"; exit 1; }
+# служебный лог crypto-функций — строго в stderr: stdout decrypt отдаёт payload в $(...)
+dlog() { printf '\033[1;36m[CSQTT]\033[0m %s\n' "$*" >&2; }
+
+decrypt_csqtt_link() {
+    command -v openssl >/dev/null 2>&1 || { warn "шаг0: нет openssl — выполните: opkg install openssl"; return 1; }
+    _b64=$(printf '%s' "$1" | tr -d ' \r\n\t' | tr '_' '/' | tr '-' '+')
+    case $(( ${#_b64} % 4 )) in
+        2) _b64="${_b64}==" ;;
+        3) _b64="${_b64}=" ;;
+        1) warn "шаг1: ссылка повреждена (длина base64 ${#_b64})"; return 1 ;;
+    esac
+    dlog "  шаг1: b64 ${#_b64} симв: $(printf '%s' "$_b64" | head -c 20)…"
+    _tmp="${CSQTT_DIR:-/tmp}/.link.bin"
+    _err="${CSQTT_DIR:-/tmp}/.link.err"
+    printf '%s' "$_b64" | openssl base64 -d -A > "$_tmp" 2>"$_err" \
+        || printf '%s' "$_b64" | base64 -d > "$_tmp" 2>"$_err" \
+        || { warn "шаг2: base64-декодирование не удалось: $(head -c 120 "$_err" 2>/dev/null)"; rm -f "$_tmp" "$_err"; return 1; }
+    _len=$(wc -c < "$_tmp" | tr -d ' ')
+    [ "$_len" -ge 29 ] || { warn "шаг2: блоб слишком короткий ($_len байт)"; rm -f "$_tmp" "$_err"; return 1; }
+    dlog "  шаг2: декодировано $_len байт"
+    _ct_len=$((_len - 28))
+    _key_hex=$(printf '%s' "csqtt-chiper-key" | openssl dgst -sha256 -hex | awk '{print $NF}')
+    _iv12=$(dd if="$_tmp" bs=1 skip=0 count=12 2>/dev/null | hexdump -v -e '12/1 "%02x"')
+    [ -n "$_iv12" ] || _iv12=$(dd if="$_tmp" bs=1 skip=0 count=12 2>/dev/null | od -An -tx1 -v | tr -d ' \n')
+    [ -n "$_iv12" ] || { warn "шаг3: не удалось прочитать IV (нет hexdump/od)"; rm -f "$_tmp" "$_err"; return 1; }
+    dlog "  шаг3: iv=$_iv12"
+    _plain=$(dd if="$_tmp" bs=1 skip=12 count="$_ct_len" 2>/dev/null \
+        | openssl enc -d -aes-256-ctr -K "$_key_hex" -iv "${_iv12}00000002" -nopad 2>"$_err") \
+        || { warn "шаг4: CTR не удался: $(head -c 160 "$_err" 2>/dev/null)"; rm -f "$_tmp" "$_err"; return 1; }
+    rm -f "$_tmp" "$_err"
+    dlog "  шаг4: payload (${#_plain} симв): $(printf '%s' "$_plain" | head -c 44)…"
+    case "$_plain" in
+        connect?*)
+            printf '%s' "$_plain"
+            return 0
+            ;;
+    esac
+    [ -n "$_plain" ] && warn "шаг5: расшифровано, но формат неожиданный" && return 0
+    warn "шаг5: пустой результат"
+    return 1
+}
+
+# Встроенный самотест: блоб расшифровывается в connect?v=2&host=1.2.3.4&peer=46000&password=testpass
+TEST_BLOB="65iHKX3Z2VyNCULRN9N8caCWgel3cZpZrCvyhKuNa1MquTIrt3Mz_CbDAcMAudPabDJ59xcLfzzrTYQoQrLQeBAAAAAAAAAAAAAAAAAAAAAA"
+test_decrypt() {
+    echo "=== Самотест расшифровки на $(uname -m) / ядро $(uname -r) ==="
+    echo "shell: $(readlink /proc/$$/exe 2>/dev/null || echo /bin/sh) · openssl: $(openssl version 2>/dev/null || echo НЕТ)"
+    echo "hexdump: $(command -v hexdump || echo НЕТ) · od: $(command -v od || echo НЕТ) · base64: $(command -v base64 || echo НЕТ)"
+    echo "tr: [$(printf '%s' 'a-b_c' | tr '_' '/' | tr '-' '+')] (ожидалось a+b/c)"
+    _p=$(decrypt_csqtt_link "$TEST_BLOB")
+    _rc=$?
+    echo "rc=$_rc payload=[${_p:-}]"
+    if [ "$_p" = "connect?v=2&host=1.2.3.4&peer=46000&password=testpass" ]; then
+        echo "✅ Самотест ПРОЙДЕН — base64/AES-CTR работают на этом шелле"
+        exit 0
+    fi
+    echo "❌ Самотест ПРОВАЛЕН — пришли вывод целиком (шаги выше)"
+    exit 1
+}
+
+if [ "${CSQTT_TEST_DECRYPT:-0}" = "1" ]; then test_decrypt; fi
 
 download_file() {
     _url="$1"
@@ -261,44 +323,6 @@ urldecode() {
     printf '%s' "$out"
 }
 
-# Расшифровка csqtt://<blob>: AES-256-GCM, key = SHA256("csqtt-chiper-key"),
-# nonce = первые 12 байт блоба, GCM-тег = последние 16 байт.
-# GCM-шифрование это CTR от nonce||0x00000002 — расшифровываем openssl CTR, тег игнорируем.
-decrypt_csqtt_link() {
-    command -v openssl >/dev/null 2>&1 || { warn "нет openssl — выполните: opkg install openssl"; return 1; }
-    _b64=$(printf '%s' "$1" | tr -d ' \r\n\t' | tr '_-' '/+')
-    case $(( ${#_b64} % 4 )) in
-        2) _b64="${_b64}==" ;;
-        3) _b64="${_b64}=" ;;
-        1) warn "ссылка повреждена (длина base64 ${#_b64})"; return 1 ;;
-    esac
-    _tmp="$CSQTT_DIR/.link.bin"
-    # сначала openssl base64 (-A = одна строка), busybox base64 как запасной
-    printf '%s' "$_b64" | openssl base64 -d -A > "$_tmp" 2>/dev/null \
-        || printf '%s' "$_b64" | base64 -d > "$_tmp" 2>/dev/null \
-        || { rm -f "$_tmp"; warn "base64-декодирование не удалось"; return 1; }
-    _len=$(wc -c < "$_tmp" | tr -d ' ')
-    [ "$_len" -ge 29 ] || { rm -f "$_tmp"; warn "блоб слишком короткий ($_len байт)"; return 1; }
-    _ct_len=$((_len - 28))
-    _key_hex=$(printf '%s' "csqtt-chiper-key" | openssl dgst -sha256 -hex | awk '{print $NF}')
-    _iv12=$(dd if="$_tmp" bs=1 skip=0 count=12 2>/dev/null | hexdump -v -e '12/1 "%02x"')
-    [ -n "$_iv12" ] || _iv12=$(dd if="$_tmp" bs=1 skip=0 count=12 2>/dev/null | od -An -tx1 -v | tr -d ' \n')
-    [ -n "$_iv12" ] || { rm -f "$_tmp"; warn "не удалось прочитать IV из блоба"; return 1; }
-    _plain=$(dd if="$_tmp" bs=1 skip=12 count="$_ct_len" 2>/dev/null \
-        | openssl enc -d -aes-256-ctr -K "$_key_hex" -iv "${_iv12}00000002" -nopad 2>/dev/null)
-    rm -f "$_tmp"
-    case "$_plain" in
-        connect?*)
-            printf '%s' "$_plain"
-            return 0
-            ;;
-    esac
-    [ -n "$_plain" ] && warn "расшифровано, но формат неожиданный: $(printf '%s' "$_plain" | head -c 40)"
-    [ -n "$_plain" ] && return 0
-    warn "openssl CTR не смог расшифровать (openssl $(openssl version 2>/dev/null | awk '{print $2}'))"
-    return 1
-}
-
 # URL подписки https://IP:46002/<uuid>/sub → достать зашифрованную csqtt:// ссылку
 link_from_sub_url() {
     _url="$1"
@@ -380,7 +404,12 @@ while :; do
         csqtt://*)
             _blob=${CSQTT_LINK#csqtt://}
             case "$_blob" in
-                connect?*) _payload="$_blob" ;;
+                connect?*)
+                    _payload="$_blob" ;;
+                *host=*)
+                    # plaintext payload без префикса connect? (например с VPS-декодера)
+                    log "Plaintext-ссылка без расшифровки"
+                    _payload="connect?$_blob" ;;
                 *)
                     log "Расшифровываю ссылку (AES-256-GCM), блоб ${#_blob} симв..."
                     _payload=$(decrypt_csqtt_link "$_blob") || _payload=""
@@ -391,6 +420,7 @@ while :; do
 
     if [ -n "$_payload" ]; then
         parse_payload "$_payload"
+        log "Разбор ссылки: host=${LINK_HOST:-—} peer=${LINK_PORT:-—} password=${LINK_PASSWORD:+передан}${LINK_PASSWORD:-нет} token=${LINK_TOKEN:+передан}${LINK_TOKEN:-нет} hashes=${LINK_HASHES:+переданы}${LINK_HASHES:-нет}"
     fi
 
     if [ -n "$LINK_HOST" ] && [ -n "$LINK_PORT" ] && [ -n "$LINK_PASSWORD" ]; then
